@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launch>
+    <include file="$(find px4)/launch/mavros_posix_sitl.launch">
+    </include>
+    <node pkg="offboard_test" type="airvoltex_off.py" name="px4_mavros_run" output="screen">
+    </node>
+    <node pkg="offboard_test" type="airvoltex_commander.py" name="commander" output="screen">
+    </node>
+</launch>
