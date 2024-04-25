@@ -1,9 +1,10 @@
 import rospy
 from mavros_msgs.msg import GlobalPositionTarget,State,ManualControl,RCIn,WaypointList,WaypointReached,Range,PositionTarget,GlobalPositionTarget,ActuatorControl,StatusText
-from mavros_msgs.srv import CommandBool
+from mavros_msgs.srv import CommandBool,SetMode,WaypointSetCurrent
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
 import time
+import roslaunch
 
 class PX4Controller:
     def __init__(self):
@@ -46,6 +47,9 @@ class PX4Controller:
         
         # services
         self.arm_service = rospy.ServiceProxy("mavros/cmd/arming",CommandBool)
+        self.flight_mode_service = rospy.ServiceProxy("/mavros/set_mode",SetMode)
+        self.set_current_waypoint_service = rospy.ServiceProxy("/mavros/mission/set_current",WaypointSetCurrent)
+
 
         print("PX4 Controller Initialized!")
         self.mavros_status_pub.publish(self.status_text("PX4 Controller Initialized!"))
@@ -114,7 +118,12 @@ class PX4Controller:
         
         return target_local_position
 
-    
+    def start_a_launchfile(self,path):
+        uuid = roslaunch.rlutil.grt_or_generate_uuid(None,False)
+        roslaunch.configure_logging(uuid)
+        launch = roslaunch.parent.ROSLaunchParent(uuid,[path])
+        launch.start()
+        return  launch
 
     # start
 
@@ -154,7 +163,7 @@ class PX4Controller:
             elif mission_flag == 3:
                 #take off
                 self.local_target_pub.publish(self.current_target_position)
-                if(not self.arm_state) or (not self.mavros_status == 'AUTO.MISSION'):
+                if(not self.arm_state) or (not self.current_state == 'AUTO.MISSION'):
                     time.sleep(0.1)
 
                     if self.REAL_ENV == False:
@@ -164,12 +173,63 @@ class PX4Controller:
                     mission_flag = 4
             
             elif mission_flag == 4:
-                if self.arm_state and self.mavros_status == 'AUTO.MISSION':
+                if self.arm_state and self.current_state == 'AUTO.MISSION':
                     rospy.loginfo("MISSION!")
                     self.mavros_status_pub.publish(self.status_text("AUTO TAKEOFF!"))
                     mission_flag = 5
                 else:
                     mission_flag = 3
+            
+            elif mission_flag == 5:
+                if(not self.arm_state) or (not self.current_state == 'AUTO.MISSION'):
+                    time.sleep(0.1)
+                    self.local_target_pub.publish(self.current_target_position)
+                else:
+                    mission_flag = 6
+                    self.mavros_status_pub.publish(self.status_text("MISSION!"))
+            
+            #wait for takeoff
+            elif mission_flag == 6:
+                self.set_current_waypoint_service(wp_seq = 0)
+                if self.mission_reached < 0:
+                    time.sleep(0.1)
+                    self.local_target_pub.publish(self.current_target_position)
+                else:
+                    mission_flag = 7
+
+            #search and attack
+            elif mission_flag == 7:
+                #todo launch file 
+                searching = self.start_a_launchfile("")
+                self.local_target_pub.publish(self.current_target_position)
+                mission_flag = 8
+            
+            #searching 
+            elif mission_flag == 8:
+                if not self.search_finished:
+                    time.sleep(0.1)
+                    self.local_target_pub.publish(self.current_target_position)
+                else:
+                    searching.shutdown()
+                    mission_flag = 9
+            
+            elif mission_flag == 9:
+                for _ in range(2):
+                    self.flight_mode_service( custiom_mode = 'AUTO.LOITER')
+                    time.sleep(0.1)
+                else:
+                    mission_flag = 10
+            
+            elif mission_flag == 10:
+                if not self.target_finished:
+                    self.local_target_pub.publish(self.current_target_position)
+                    time.sleep(0.1)
+                else:
+                    mission_flag = 11
+            
+            
+
+
 
 
              
