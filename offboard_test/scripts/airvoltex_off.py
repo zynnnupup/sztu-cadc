@@ -124,7 +124,20 @@ class PX4Controller:
         launch = roslaunch.parent.ROSLaunchParent(uuid,[path])
         launch.start()
         return  launch
-
+    
+    def construct_actuator_control_target(self,group_mix,controls):
+        target_actuator_control = ActuatorControl()
+        target_actuator_control.header.stamp = rospy.Time.now()
+        target_actuator_control.group_mix = group_mix
+        target_actuator_control.controls = controls
+        return target_actuator_control
+    
+    def status_text(self, text, severity=6):
+        send_status = StatusText()
+        send_status.header.stamp = rospy.Time.now()
+        send_status.severity = severity
+        send_status.text = text
+        return send_status
     # start
 
     def start(self):
@@ -226,8 +239,46 @@ class PX4Controller:
                     time.sleep(0.1)
                 else:
                     mission_flag = 11
+
+            elif mission_flag == 11:
+                for _ in range(2):
+                    self.local_target_pub.publish(self.current_target_position)
+                    self.flight_mode_service(custom_mode = 'OFFBOARD')
+                    time.sleep(0.1)
+                mission_flag = 12
             
+            elif mission_flag == 12:
+                if not self.attack_finished:
+                    time.sleep(0.1)
+                    self.local_target_pub.publish(self.current_target_position)
+                else:
+                    mission_flag = 98
+                    if self.REAL_FLIGHT:
+                        self.actuator_pub.publish(self.construct_actuator_control_target(2,self.open_magazine))
             
+            #land
+            elif mission_flag == 98:
+                for _ in range(2):
+                    self.set_current_waypoint_service(wp_seq = 18)
+                    self.flight_mode_service(custom_mode = 'AUTO.MISSION')
+                    time.sleep(0.1)
+                mission_flag = 99
+
+            elif mission_flag == 99:
+                time.sleep(0.1)
+                self.local_target_pub.publish(self.current_target_position)
+
+            else:
+                exit()
+    
+if __name__ == '__main__':
+    con = PX4Controller()
+    con.start()
+            
+                
+
+            
+
 
 
 
